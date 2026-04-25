@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#fff8ef">
+  <title>Emotiometre</title>
+  <meta
+    name="description"
+    content="Un emotiometre simple pour expliquer son etat a sa maman avec douceur et clarte."
+  >
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Nunito:wght@400;700;800&display=swap"
+    rel="stylesheet"
+  >
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="page-glow page-glow-left"></div>
+  <div class="page-glow page-glow-right"></div>
+
+  <main class="app-shell">
+    <div class="top-actions">
+      <p class="sync-status" id="sync-status" hidden></p>
+      <button type="button" class="admin-chip" id="admin-toggle">Admin</button>
+    </div>
+
+    <section class="hero-card">
+      <p class="eyebrow" id="hero-eyebrow">Mon emotiometre</p>
+      <h1 id="hero-title">Un petit tableau pour rassurer maman.</h1>
+      <p class="hero-copy" id="hero-copy">
+        Je choisis mon niveau du moment,
+        et maman peut comprendre tout de suite comment m'aider sans s'inquieter plus que besoin.
+      </p>
+    </section>
+
+    <section class="dashboard">
+      <article class="status-panel">
+        <div class="panel-label" id="status-panel-label">Etat actuel</div>
+        <div class="status-meter" aria-hidden="true">
+          <div class="status-meter-fill" id="meter-fill"></div>
+        </div>
+
+        <div class="status-card" id="status-card">
+          <p class="status-step" id="status-step">Niveau 2</p>
+          <h2 id="status-title">Je suis sensible, mais ca va.</h2>
+          <p class="status-message" id="status-message">
+            J'ai surtout besoin de douceur, d'un peu de calme ou d'un sourire.
+          </p>
+          <p class="status-support" id="status-support">
+            Tu peux me parler tranquillement, sans paniquer.
+          </p>
+        </div>
+
+        <div class="timestamp-card">
+          <span>Derniere mise a jour</span>
+          <strong id="timestamp">Pas encore enregistre</strong>
+        </div>
+      </article>
+
+      <article class="selector-panel">
+        <div class="panel-label" id="selector-panel-label">Je choisis mon niveau</div>
+        <p class="access-note" id="level-access-note">Selection reservee a l'admin</p>
+        <div class="level-grid" id="level-grid"></div>
+      </article>
+    </section>
+
+    <section class="notes-section">
+      <article class="summary-card">
+        <div class="panel-label" id="summary-panel-label">Message pour maman</div>
+        <p id="summary-text">
+          Maman, en ce moment je suis un peu sensible, mais ca va. J'ai surtout besoin de douceur.
+        </p>
+
+        <div class="action-row summary-actions">
+          <button type="button" class="secondary-button" id="copy-button">Copier le message</button>
+        </div>
+
+        <div class="helper-box">
+          <h3 id="helper-title">Comment le lire</h3>
+          <p id="helper-text">
+            Plus le niveau est bas, plus tout est sous controle. Si le niveau monte,
+            cela veut surtout dire que j'ai besoin d'aide, de calme ou d'une presence rassurante.
+          </p>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <div class="admin-modal" id="admin-modal" hidden>
+    <div class="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-title">
+      <button type="button" class="admin-close" id="admin-close" aria-label="Fermer le panneau admin">x</button>
+
+      <section class="admin-lock" id="admin-lock-view">
+        <p class="admin-badge">Mode admin</p>
+        <h2 id="admin-title">Debloquer les modifications</h2>
+        <p class="admin-copy">
+          Entre le code admin. Seuls les admins peuvent changer les boutons et les textes de l'emotiometre.
+        </p>
+
+        <label class="field-label" for="admin-code">Code admin</label>
+        <input
+          type="password"
+          id="admin-code"
+          class="admin-input"
+          placeholder="Entre le code"
+          autocomplete="off"
+        >
+
+        <p class="admin-feedback" id="admin-feedback"></p>
+
+        <div class="admin-actions">
+          <button type="button" class="primary-button" id="admin-login">Ouvrir le panneau</button>
+          <button type="button" class="secondary-button" id="admin-cancel">Fermer</button>
+        </div>
+      </section>
+
+      <section class="admin-editor" id="admin-editor-view" hidden>
+        <div class="admin-editor-header">
+          <div>
+            <p class="admin-badge">Mode admin</p>
+            <h2>Modifier les textes</h2>
+          </div>
+
+          <button type="button" class="secondary-button" id="admin-lock-button">Verrouiller</button>
+        </div>
+
+        <p class="admin-copy">
+          Ici, seuls les admins peuvent changer les boutons et les textes. Si le serveur est actif, les modifications seront partagees sur tous les appareils connectes.
+        </p>
+
+        <p class="admin-feedback admin-feedback-success" id="admin-save-feedback"></p>
+
+        <div class="admin-form" id="admin-form"></div>
+
+        <div class="admin-actions admin-actions-bottom">
+          <button type="button" class="primary-button" id="admin-save">Enregistrer les modifications</button>
+          <button type="button" class="secondary-button" id="admin-reset">Remettre les textes d'origine</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
