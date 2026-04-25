@@ -14,19 +14,11 @@ const defaultConfig = {
       "Je choisis mon niveau du moment, et maman peut comprendre tout de suite comment m'aider sans s'inquieter plus que besoin.",
     statusPanelLabel: "Etat actuel",
     selectorPanelLabel: "Je choisis mon niveau",
-    notePanelLabel: "Mon petit mot",
-    noteFieldLabel: "Je peux ajouter une phrase pour maman",
-    notePlaceholder: "Exemple : j'ai juste besoin d'un calin et de dix minutes au calme.",
     summaryPanelLabel: "Message pour maman",
     helperTitle: "Comment le lire",
     helperText:
       "Plus le niveau est bas, plus tout est sous controle. Si le niveau monte, cela veut surtout dire que j'ai besoin d'aide, de calme ou d'une presence rassurante."
   },
-  quickNotes: [
-    "J'ai besoin d'un calin.",
-    "Laisse-moi respirer cinq minutes.",
-    "Tu peux venir me parler doucement."
-  ],
   levels: {
     1: {
       buttonName: "Tout va bien",
@@ -134,7 +126,6 @@ let appConfig = loadLocalConfig();
 let currentLevel = 2;
 let adminUnlocked = false;
 let adminSessionCode = "";
-let remoteSyncEnabled = false;
 
 function setAdminSession(isUnlocked) {
   adminUnlocked = isUnlocked;
@@ -200,12 +191,6 @@ function buildConfig(source) {
     });
   }
 
-  if (Array.isArray(source.quickNotes)) {
-    nextConfig.quickNotes = source.quickNotes
-      .filter((note) => typeof note === "string")
-      .slice(0, 3);
-  }
-
   Object.keys(nextConfig.levels).forEach((level) => {
     const incomingLevel = source.levels && source.levels[level];
 
@@ -243,7 +228,6 @@ function saveLocalConfig(config) {
 function buildState(source) {
   const nextState = {
     level: 2,
-    note: "",
     savedAt: "Pas encore enregistre"
   };
 
@@ -253,10 +237,6 @@ function buildState(source) {
 
   if (appConfig.levels[String(source.level)]) {
     nextState.level = Number(source.level);
-  }
-
-  if (typeof source.note === "string") {
-    nextState.note = source.note;
   }
 
   if (typeof source.savedAt === "string" && source.savedAt.trim()) {
@@ -286,7 +266,6 @@ function saveLocalState(state) {
 function getCurrentStateSnapshot() {
   return buildState({
     level: currentLevel,
-    note: "",
     savedAt: timestamp.textContent
   });
 }
@@ -399,7 +378,6 @@ async function saveState() {
   const savedAt = formatTimestamp();
   const state = buildState({
     level: currentLevel,
-    note: "",
     savedAt
   });
 
@@ -409,10 +387,8 @@ async function saveState() {
 
   try {
     await saveStateToServer(state);
-    remoteSyncEnabled = true;
     setSyncStatus("Sauvegarde commune active", "online");
   } catch (error) {
-    remoteSyncEnabled = false;
     setSyncStatus("", "local");
   }
 }
@@ -573,7 +549,6 @@ function lockAdmin() {
 
 function buildAdminConfigFromForm() {
   const nextConfig = cloneDefaultConfig();
-  const quickNotes = ["", "", ""];
 
   adminForm.querySelectorAll("input, textarea").forEach((field) => {
     const configType = field.dataset.configType;
@@ -584,19 +559,12 @@ function buildAdminConfigFromForm() {
       nextConfig.ui[key] = rawValue || defaultConfig.ui[key];
     }
 
-    if (configType === "quick-note") {
-      const noteIndex = Number(field.dataset.noteIndex);
-      quickNotes[noteIndex] = rawValue;
-    }
-
     if (configType === "level") {
       const level = field.dataset.level;
       const key = field.dataset.configKey;
       nextConfig.levels[level][key] = rawValue || defaultConfig.levels[level][key];
     }
   });
-
-  nextConfig.quickNotes = quickNotes;
   return nextConfig;
 }
 
@@ -624,7 +592,6 @@ async function syncConfigFromServer() {
   try {
     const payload = await fetchRemoteConfig();
 
-    remoteSyncEnabled = true;
     setSyncStatus("Sauvegarde commune active", "online");
 
     if (!payload || !payload.config) {
@@ -640,7 +607,6 @@ async function syncConfigFromServer() {
 
     return true;
   } catch (error) {
-    remoteSyncEnabled = false;
     setSyncStatus("", "local");
     return false;
   }
@@ -650,7 +616,6 @@ async function syncStateFromServer() {
   try {
     const payload = await fetchRemoteState();
 
-    remoteSyncEnabled = true;
     setSyncStatus("Sauvegarde commune active", "online");
 
     if (!payload || !payload.state) {
@@ -667,7 +632,6 @@ async function syncStateFromServer() {
 
     return true;
   } catch (error) {
-    remoteSyncEnabled = false;
     setSyncStatus("", "local");
     return false;
   }
@@ -735,11 +699,9 @@ async function saveAdminConfig() {
 
   try {
     await saveConfigToServer(nextConfig);
-    remoteSyncEnabled = true;
     setSyncStatus("Sauvegarde commune active", "online");
     adminSaveFeedback.textContent = "Modifications enregistrees sur tous les appareils.";
   } catch (error) {
-    remoteSyncEnabled = false;
     setSyncStatus("", "local");
     adminSaveFeedback.textContent =
       "Serveur indisponible : les modifications ne sont pas partagees pour le moment.";
@@ -763,11 +725,9 @@ async function resetAdminConfig() {
 
   try {
     await deleteRemoteConfig();
-    remoteSyncEnabled = true;
     setSyncStatus("Sauvegarde commune active", "online");
     adminSaveFeedback.textContent = "Les textes d'origine ont ete remis sur tous les appareils.";
   } catch (error) {
-    remoteSyncEnabled = false;
     setSyncStatus("", "local");
     adminSaveFeedback.textContent =
       "Serveur indisponible : la remise a zero n'est pas partagee pour le moment.";

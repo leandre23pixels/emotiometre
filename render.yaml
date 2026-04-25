@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: emotiometre
+    runtime: node
+    plan: free
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: SUPABASE_TABLE
+        value: shared_documents
+      - key: ADMIN_CODE
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

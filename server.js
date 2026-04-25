@@ -7,10 +7,20 @@ const path = require("path");
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const ADMIN_CODE = process.env.ADMIN_CODE || "LSO2012";
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
+const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+const SUPABASE_TABLE = (process.env.SUPABASE_TABLE || "shared_documents").trim();
+const hasSupabaseStorage = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+
 const rootDir = __dirname;
 const dataDir = path.join(rootDir, "data");
 const configFile = path.join(dataDir, "shared-config.json");
 const stateFile = path.join(dataDir, "shared-state.json");
+
+const sharedDocumentIds = {
+  config: "config",
+  state: "state"
+};
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -69,21 +79,27 @@ async function ensureDataDir() {
   await fsp.mkdir(dataDir, { recursive: true });
 }
 
-async function readSharedConfig() {
+async function readJsonFile(filePath) {
   try {
-    const raw = await fsp.readFile(configFile, "utf8");
+    const raw = await fsp.readFile(filePath, "utf8");
     return JSON.parse(raw);
   } catch (error) {
     return null;
   }
 }
 
-async function readSharedState() {
+async function writeJsonFile(filePath, payload) {
+  await ensureDataDir();
+  await fsp.writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+}
+
+async function deleteJsonFile(filePath) {
   try {
-    const raw = await fsp.readFile(stateFile, "utf8");
-    return JSON.parse(raw);
+    await fsp.unlink(filePath);
   } catch (error) {
-    return null;
+    if (error.code !== "ENOENT") {
+      throw error;
+    }
   }
 }
 
@@ -91,10 +107,112 @@ function hasValidAdminCode(req) {
   return (req.headers["x-admin-code"] || "").trim().toUpperCase() === ADMIN_CODE;
 }
 
+function getSupabaseHeaders(extraHeaders = {}) {
+  return {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    ...extraHeaders
+  };
+}
+
+function getSupabaseTableUrl() {
+  return `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`;
+}
+
+async function readSupabaseDocument(documentId) {
+  const endpoint =
+    `${getSupabaseTableUrl()}?id=eq.${encodeURIComponent(documentId)}&select=payload`;
+
+  const response = await fetch(endpoint, {
+    headers: getSupabaseHeaders()
+  });
+
+  if (!response.ok) {
+    throw new Error(`supabase read failed: ${response.status}`);
+  }
+
+  const rows = await response.json();
+  return rows[0] ? rows[0].payload : null;
+}
+
+async function writeSupabaseDocument(documentId, payload) {
+  const response = await fetch(getSupabaseTableUrl(), {
+    method: "POST",
+    headers: getSupabaseHeaders({
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    }),
+    body: JSON.stringify([{ id: documentId, payload }])
+  });
+
+  if (!response.ok) {
+    throw new Error(`supabase write failed: ${response.status}`);
+  }
+}
+
+async function deleteSupabaseDocument(documentId) {
+  const endpoint = `${getSupabaseTableUrl()}?id=eq.${encodeURIComponent(documentId)}`;
+  const response = await fetch(endpoint, {
+    method: "DELETE",
+    headers: getSupabaseHeaders({
+      Prefer: "return=minimal"
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`supabase delete failed: ${response.status}`);
+  }
+}
+
+async function readSharedConfig() {
+  if (hasSupabaseStorage) {
+    return readSupabaseDocument(sharedDocumentIds.config);
+  }
+
+  return readJsonFile(configFile);
+}
+
+async function writeSharedConfig(config) {
+  if (hasSupabaseStorage) {
+    return writeSupabaseDocument(sharedDocumentIds.config, config);
+  }
+
+  return writeJsonFile(configFile, config);
+}
+
+async function deleteSharedConfig() {
+  if (hasSupabaseStorage) {
+    return deleteSupabaseDocument(sharedDocumentIds.config);
+  }
+
+  return deleteJsonFile(configFile);
+}
+
+async function readSharedState() {
+  if (hasSupabaseStorage) {
+    return readSupabaseDocument(sharedDocumentIds.state);
+  }
+
+  return readJsonFile(stateFile);
+}
+
+async function writeSharedState(state) {
+  if (hasSupabaseStorage) {
+    return writeSupabaseDocument(sharedDocumentIds.state, state);
+  }
+
+  return writeJsonFile(stateFile, state);
+}
+
 async function handleConfigApi(req, res) {
   if (req.method === "GET") {
-    const config = await readSharedConfig();
-    sendJson(res, 200, { config });
+    try {
+      const config = await readSharedConfig();
+      sendJson(res, 200, { config });
+    } catch (error) {
+      sendJson(res, 500, { error: "storage unavailable" });
+    }
+
     return;
   }
 
@@ -113,8 +231,7 @@ async function handleConfigApi(req, res) {
         return;
       }
 
-      await ensureDataDir();
-      await fsp.writeFile(configFile, JSON.stringify(payload.config, null, 2), "utf8");
+      await writeSharedConfig(payload.config);
       sendJson(res, 200, { ok: true });
     } catch (error) {
       sendJson(res, 400, { error: "invalid request" });
@@ -130,15 +247,12 @@ async function handleConfigApi(req, res) {
     }
 
     try {
-      await fsp.unlink(configFile);
+      await deleteSharedConfig();
+      sendJson(res, 200, { ok: true });
     } catch (error) {
-      if (error.code !== "ENOENT") {
-        sendJson(res, 500, { error: "delete failed" });
-        return;
-      }
+      sendJson(res, 500, { error: "delete failed" });
     }
 
-    sendJson(res, 200, { ok: true });
     return;
   }
 
@@ -147,8 +261,13 @@ async function handleConfigApi(req, res) {
 
 async function handleStateApi(req, res) {
   if (req.method === "GET") {
-    const state = await readSharedState();
-    sendJson(res, 200, { state });
+    try {
+      const state = await readSharedState();
+      sendJson(res, 200, { state });
+    } catch (error) {
+      sendJson(res, 500, { error: "storage unavailable" });
+    }
+
     return;
   }
 
@@ -162,8 +281,7 @@ async function handleStateApi(req, res) {
         return;
       }
 
-      await ensureDataDir();
-      await fsp.writeFile(stateFile, JSON.stringify(payload.state, null, 2), "utf8");
+      await writeSharedState(payload.state);
       sendJson(res, 200, { ok: true });
     } catch (error) {
       sendJson(res, 400, { error: "invalid request" });
@@ -235,6 +353,14 @@ function listLocalAddresses() {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || `localhost:${PORT}`}`);
 
+  if (url.pathname === "/health") {
+    sendJson(res, 200, {
+      ok: true,
+      storage: hasSupabaseStorage ? "supabase" : "local"
+    });
+    return;
+  }
+
   if (url.pathname === "/api/config") {
     await handleConfigApi(req, res);
     return;
@@ -250,8 +376,10 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   const addresses = listLocalAddresses();
+  const storageMode = hasSupabaseStorage ? "supabase" : "local";
 
   console.log(`Emotiometre disponible sur http://localhost:${PORT}`);
+  console.log(`Stockage actif : ${storageMode}`);
 
   addresses.forEach((address) => {
     console.log(`Partage reseau : http://${address}:${PORT}`);

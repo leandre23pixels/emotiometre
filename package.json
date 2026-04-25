@@ -1,8 +1,12 @@
 {
   "name": "emotiometre",
   "version": "1.0.0",
+  "description": "Emotiometre partage pour rassurer maman",
   "private": true,
   "scripts": {
     "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

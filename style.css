@@ -105,7 +105,6 @@ input {
 .hero-card,
 .status-panel,
 .selector-panel,
-.note-card,
 .summary-card {
   background: var(--surface);
   backdrop-filter: blur(16px);
@@ -192,7 +191,6 @@ input {
 
 .status-panel,
 .selector-panel,
-.note-card,
 .summary-card {
   padding: 1.05rem;
   animation: rise-in 0.8s ease both;
@@ -200,10 +198,6 @@ input {
 
 .selector-panel {
   animation-delay: 0.08s;
-}
-
-.note-card {
-  animation-delay: 0.12s;
 }
 
 .summary-card {
@@ -390,18 +384,6 @@ textarea:focus {
   outline: none;
 }
 
-.quick-notes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  margin-top: 0.85rem;
-}
-
-.quick-notes:empty {
-  display: none;
-}
-
-.quick-note,
 .primary-button,
 .secondary-button {
   border-radius: 999px;
@@ -413,15 +395,6 @@ textarea:focus {
     border-color 180ms ease;
 }
 
-.quick-note {
-  min-height: 46px;
-  padding: 0.78rem 1rem;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--text);
-}
-
-.quick-note:hover,
-.quick-note:focus-visible,
 .primary-button:hover,
 .primary-button:focus-visible,
 .secondary-button:hover,
@@ -697,7 +670,6 @@ body.admin-open {
   .hero-card,
   .status-panel,
   .selector-panel,
-  .note-card,
   .summary-card {
     padding: 1.2rem;
   }
