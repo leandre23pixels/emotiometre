@@ -11,7 +11,7 @@ const defaultConfig = {
     heroEyebrow: "Mon emotiometre",
     heroTitle: "Un petit tableau pour rassurer maman.",
     heroCopy:
-      "Je choisis mon niveau du moment, et maman peut comprendre tout de suite comment m'aider sans s'inquieter plus que besoin.",
+      "Je choisis mon niveau du moment, puis j'envoie le message a maman en SMS, WhatsApp ou partage.",
     statusPanelLabel: "Etat actuel",
     selectorPanelLabel: "Je choisis mon niveau",
     summaryPanelLabel: "Message pour maman",
@@ -106,6 +106,9 @@ const statusSupport = document.getElementById("status-support");
 const meterFill = document.getElementById("meter-fill");
 const summaryText = document.getElementById("summary-text");
 const timestamp = document.getElementById("timestamp");
+const shareButton = document.getElementById("share-button");
+const smsButton = document.getElementById("sms-button");
+const whatsappButton = document.getElementById("whatsapp-button");
 const copyButton = document.getElementById("copy-button");
 const adminToggle = document.getElementById("admin-toggle");
 const adminModal = document.getElementById("admin-modal");
@@ -158,14 +161,9 @@ function updateAdminButton() {
 
 function updateLevelAccess() {
   levelAccessNote.textContent = adminUnlocked
-    ? "Mode admin : selection des niveaux active"
-    : "Selection reservee a l'admin";
+    ? "Mode admin : tu peux aussi modifier les textes."
+    : "Choisis un niveau puis partage le message a maman.";
   levelAccessNote.classList.toggle("access-note-open", adminUnlocked);
-
-  [...document.querySelectorAll(".level-button")].forEach((button) => {
-    button.setAttribute("aria-disabled", String(!adminUnlocked));
-    button.classList.toggle("is-locked", !adminUnlocked);
-  });
 }
 
 function isEditingAdmin() {
@@ -323,6 +321,10 @@ function updateSummaryText() {
   summaryText.textContent = getCurrentSummary(currentLevel);
 }
 
+function getCurrentSummaryText() {
+  return getCurrentSummary(currentLevel);
+}
+
 function renderLevel(level) {
   const selectedLevel = appConfig.levels[String(level)] ? Number(level) : 2;
   const config = appConfig.levels[String(selectedLevel)];
@@ -374,6 +376,15 @@ function formatTimestamp(date = new Date()) {
   }).format(date);
 }
 
+function setTemporaryButtonLabel(button, successLabel, fallbackLabel = null) {
+  const nextLabel = fallbackLabel || button.dataset.defaultLabel || button.textContent;
+  button.textContent = successLabel;
+
+  window.setTimeout(() => {
+    button.textContent = nextLabel;
+  }, 1800);
+}
+
 async function saveState() {
   const savedAt = formatTimestamp();
   const state = buildState({
@@ -415,7 +426,7 @@ function fallbackCopy(text) {
 }
 
 async function copySummary() {
-  const text = getCurrentSummary(currentLevel);
+  const text = getCurrentSummaryText();
 
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -424,14 +435,44 @@ async function copySummary() {
       fallbackCopy(text);
     }
 
-    copyButton.textContent = "Message copie";
+    setTemporaryButtonLabel(copyButton, "Message copie");
   } catch (error) {
-    copyButton.textContent = "Copie impossible";
+    setTemporaryButtonLabel(copyButton, "Copie impossible");
+  }
+}
+
+async function shareSummary() {
+  const text = getCurrentSummaryText();
+
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        text
+      });
+      setTemporaryButtonLabel(shareButton, "Partage ouvert");
+      return;
+    } catch (error) {
+      if (error && error.name === "AbortError") {
+        return;
+      }
+    }
   }
 
-  window.setTimeout(() => {
-    copyButton.textContent = "Copier le message";
-  }, 1800);
+  await copySummary();
+  setTemporaryButtonLabel(shareButton, "Message copie");
+}
+
+function openSmsApp() {
+  const text = encodeURIComponent(getCurrentSummaryText());
+  const isAppleDevice = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const smsUrl = isAppleDevice ? `sms:&body=${text}` : `sms:?body=${text}`;
+
+  window.location.href = smsUrl;
+}
+
+function openWhatsApp() {
+  const text = encodeURIComponent(getCurrentSummaryText());
+  window.location.href = `https://wa.me/?text=${text}`;
 }
 
 function createAdminField(label, value, metadata, options = {}) {
@@ -741,14 +782,12 @@ levelGrid.addEventListener("click", (event) => {
     return;
   }
 
-  if (!adminUnlocked) {
-    openAdminModal();
-    return;
-  }
-
   renderLevel(Number(button.dataset.level));
   saveState();
 });
+shareButton.addEventListener("click", shareSummary);
+smsButton.addEventListener("click", openSmsApp);
+whatsappButton.addEventListener("click", openWhatsApp);
 copyButton.addEventListener("click", copySummary);
 adminToggle.addEventListener("click", openAdminModal);
 adminClose.addEventListener("click", closeAdminModal);
@@ -800,6 +839,10 @@ window.setInterval(() => {
 
 setSyncStatus("", "local");
 restoreAdminSession();
+shareButton.dataset.defaultLabel = shareButton.textContent;
+smsButton.dataset.defaultLabel = smsButton.textContent;
+whatsappButton.dataset.defaultLabel = whatsappButton.textContent;
+copyButton.dataset.defaultLabel = copyButton.textContent;
 renderStaticTexts();
 renderLevelButtons();
 restoreState();
