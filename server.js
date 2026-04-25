@@ -7,10 +7,16 @@ const path = require("path");
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const ADMIN_CODE = process.env.ADMIN_CODE || "LSO2012";
+const DATABASE_URL = (process.env.DATABASE_URL || "").trim();
+const POSTGRES_TABLE = sanitizeSqlIdentifier(
+  (process.env.POSTGRES_TABLE || "shared_documents").trim(),
+  "shared_documents"
+);
 const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
 const SUPABASE_SERVICE_ROLE_KEY = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 const SUPABASE_TABLE = (process.env.SUPABASE_TABLE || "shared_documents").trim();
 const hasSupabaseStorage = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+const hasPostgresStorage = Boolean(DATABASE_URL);
 
 const rootDir = __dirname;
 const dataDir = path.join(rootDir, "data");
@@ -22,6 +28,9 @@ const sharedDocumentIds = {
   state: "state"
 };
 
+let postgresPool = null;
+let storageReadyPromise = null;
+
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -30,6 +39,22 @@ const contentTypes = {
   ".png": "image/png",
   ".svg": "image/svg+xml; charset=utf-8"
 };
+
+function sanitizeSqlIdentifier(value, fallback) {
+  return /^[a-z_][a-z0-9_]*$/i.test(value) ? value : fallback;
+}
+
+function getStorageMode() {
+  if (hasSupabaseStorage) {
+    return "supabase";
+  }
+
+  if (hasPostgresStorage) {
+    return "postgres";
+  }
+
+  return "local";
+}
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
@@ -107,6 +132,57 @@ function hasValidAdminCode(req) {
   return (req.headers["x-admin-code"] || "").trim().toUpperCase() === ADMIN_CODE;
 }
 
+function getPostgresPool() {
+  if (!hasPostgresStorage) {
+    return null;
+  }
+
+  if (!postgresPool) {
+    const { Pool } = require("pg");
+    postgresPool = new Pool({
+      connectionString: DATABASE_URL
+    });
+  }
+
+  return postgresPool;
+}
+
+async function ensurePostgresStorage() {
+  const pool = getPostgresPool();
+
+  await pool.query(`
+    create table if not exists ${POSTGRES_TABLE} (
+      id text primary key,
+      payload jsonb not null,
+      updated_at timestamptz not null default now()
+    )
+  `);
+}
+
+async function ensureStorageReady() {
+  if (!storageReadyPromise) {
+    storageReadyPromise = (async () => {
+      if (hasSupabaseStorage) {
+        return;
+      }
+
+      if (hasPostgresStorage) {
+        await ensurePostgresStorage();
+        return;
+      }
+
+      await ensureDataDir();
+    })();
+  }
+
+  try {
+    await storageReadyPromise;
+  } catch (error) {
+    storageReadyPromise = null;
+    throw error;
+  }
+}
+
 function getSupabaseHeaders(extraHeaders = {}) {
   return {
     apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -117,6 +193,34 @@ function getSupabaseHeaders(extraHeaders = {}) {
 
 function getSupabaseTableUrl() {
   return `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`;
+}
+
+async function readPostgresDocument(documentId) {
+  const pool = getPostgresPool();
+  const result = await pool.query(
+    `select payload from ${POSTGRES_TABLE} where id = $1 limit 1`,
+    [documentId]
+  );
+
+  return result.rows[0] ? result.rows[0].payload : null;
+}
+
+async function writePostgresDocument(documentId, payload) {
+  const pool = getPostgresPool();
+  await pool.query(
+    `
+      insert into ${POSTGRES_TABLE} (id, payload, updated_at)
+      values ($1, $2::jsonb, now())
+      on conflict (id)
+      do update set payload = excluded.payload, updated_at = now()
+    `,
+    [documentId, JSON.stringify(payload)]
+  );
+}
+
+async function deletePostgresDocument(documentId) {
+  const pool = getPostgresPool();
+  await pool.query(`delete from ${POSTGRES_TABLE} where id = $1`, [documentId]);
 }
 
 async function readSupabaseDocument(documentId) {
@@ -165,40 +269,70 @@ async function deleteSupabaseDocument(documentId) {
 }
 
 async function readSharedConfig() {
+  await ensureStorageReady();
+
   if (hasSupabaseStorage) {
     return readSupabaseDocument(sharedDocumentIds.config);
+  }
+
+  if (hasPostgresStorage) {
+    return readPostgresDocument(sharedDocumentIds.config);
   }
 
   return readJsonFile(configFile);
 }
 
 async function writeSharedConfig(config) {
+  await ensureStorageReady();
+
   if (hasSupabaseStorage) {
     return writeSupabaseDocument(sharedDocumentIds.config, config);
+  }
+
+  if (hasPostgresStorage) {
+    return writePostgresDocument(sharedDocumentIds.config, config);
   }
 
   return writeJsonFile(configFile, config);
 }
 
 async function deleteSharedConfig() {
+  await ensureStorageReady();
+
   if (hasSupabaseStorage) {
     return deleteSupabaseDocument(sharedDocumentIds.config);
+  }
+
+  if (hasPostgresStorage) {
+    return deletePostgresDocument(sharedDocumentIds.config);
   }
 
   return deleteJsonFile(configFile);
 }
 
 async function readSharedState() {
+  await ensureStorageReady();
+
   if (hasSupabaseStorage) {
     return readSupabaseDocument(sharedDocumentIds.state);
+  }
+
+  if (hasPostgresStorage) {
+    return readPostgresDocument(sharedDocumentIds.state);
   }
 
   return readJsonFile(stateFile);
 }
 
 async function writeSharedState(state) {
+  await ensureStorageReady();
+
   if (hasSupabaseStorage) {
     return writeSupabaseDocument(sharedDocumentIds.state, state);
+  }
+
+  if (hasPostgresStorage) {
+    return writePostgresDocument(sharedDocumentIds.state, state);
   }
 
   return writeJsonFile(stateFile, state);
@@ -354,10 +488,19 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || `localhost:${PORT}`}`);
 
   if (url.pathname === "/health") {
-    sendJson(res, 200, {
-      ok: true,
-      storage: hasSupabaseStorage ? "supabase" : "local"
-    });
+    try {
+      await ensureStorageReady();
+      sendJson(res, 200, {
+        ok: true,
+        storage: getStorageMode()
+      });
+    } catch (error) {
+      sendJson(res, 500, {
+        ok: false,
+        storage: getStorageMode()
+      });
+    }
+
     return;
   }
 
@@ -376,7 +519,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, HOST, () => {
   const addresses = listLocalAddresses();
-  const storageMode = hasSupabaseStorage ? "supabase" : "local";
+  const storageMode = getStorageMode();
 
   console.log(`Emotiometre disponible sur http://localhost:${PORT}`);
   console.log(`Stockage actif : ${storageMode}`);

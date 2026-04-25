@@ -1,46 +1,45 @@
-# Mise en ligne permanente
+# Mise en ligne simple
 
-## 1. Preparer Supabase
+Tu n'as plus besoin de Supabase.
 
-1. Ouvre ton projet Supabase.
-2. Va dans `SQL Editor`.
-3. Copie-colle le contenu de `supabase-schema.sql`.
-4. Lance la requete.
+## 1. Ouvrir Render
 
-## 2. Recuperer les 2 infos importantes
+1. Ouvre Render.
+2. Clique sur `New`.
+3. Clique sur `Blueprint`.
 
-Dans Supabase :
+## 2. Choisir le depot
 
-1. Va dans `Project Settings` puis `API`.
-2. Copie :
-   - `Project URL`
-   - `service_role` key
+1. Connecte GitHub si besoin.
+2. Choisis le depot `leandre23pixels/emotiometre`.
+3. Render va lire `render.yaml` tout seul.
 
-Garde aussi ton code admin si tu veux le changer :
+## 3. Remplir seulement une case
+
+Render doit juste te demander :
 
 - `ADMIN_CODE`
 
-## 3. Mettre le serveur sur Render
+Tu peux mettre :
 
-1. Ouvre Render.
-2. Clique sur `New` puis `Blueprint`.
-3. Connecte ton GitHub si besoin.
-4. Choisis le depot `leandre23pixels/emotiometre`.
-5. Render detectera `render.yaml`.
-6. Renseigne les variables :
-   - `ADMIN_CODE`
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-7. Lance le deploy.
+- `LSO2012`
 
-## 4. Recuperer ton lien
+ou ton propre code si tu veux le changer.
 
-Quand le deploy est fini, Render te donne une adresse en `https://...onrender.com`.
+## 4. Lancer
+
+1. Clique sur `Apply`.
+2. Attends que le site et la base se creent.
+
+## 5. Recuperer le lien
+
+Quand c'est fini, Render te donne une adresse en `https://...onrender.com`.
 
 Ce sera ton vrai lien public.
 
-## 5. Important
+## 6. Important
 
-- Le serveur restera en ligne meme si ton PC est eteint.
-- En gratuit, Render peut mettre le site en veille apres un moment sans visite.
-- Au premier clic apres une veille, il peut y avoir un petit temps d'attente.
+- Ton PC peut etre eteint, le site restera en ligne.
+- En gratuit, le site peut se mettre en veille apres 15 minutes sans visite.
+- Quand quelqu'un revient dessus, il peut y avoir environ 1 minute d'attente au premier chargement.
+- La base de donnees gratuite Render expire 30 jours apres sa creation.
