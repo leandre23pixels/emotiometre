@@ -1,7 +1,10 @@
 const storageKey = "emotiometre-state";
 const configStorageKey = "emotiometre-config";
+const configApiUrl = "./api/config";
+const stateApiUrl = "./api/state";
 const adminSessionKey = "emotiometre-admin-session";
 const ADMIN_CODE = "LSO2012";
+const remotePollMs = 15000;
 
 const defaultConfig = {
   ui: {
@@ -392,6 +395,13 @@ async function saveState() {
   saveLocalState(state);
   timestamp.textContent = savedAt;
   updateSummaryText();
+
+  try {
+    await saveStateToServer(state);
+    setSyncStatus("Sauvegarde commune active", "online");
+  } catch (error) {
+    setSyncStatus("", "local");
+  }
 }
 
 function restoreState() {
@@ -599,6 +609,125 @@ function buildAdminConfigFromForm() {
   return nextConfig;
 }
 
+async function fetchRemoteConfig() {
+  const response = await fetch(configApiUrl, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error("remote unavailable");
+  }
+
+  return response.json();
+}
+
+async function fetchRemoteState() {
+  const response = await fetch(stateApiUrl, { cache: "no-store" });
+
+  if (!response.ok) {
+    throw new Error("remote state unavailable");
+  }
+
+  return response.json();
+}
+
+async function syncConfigFromServer() {
+  try {
+    const payload = await fetchRemoteConfig();
+
+    setSyncStatus("Sauvegarde commune active", "online");
+
+    if (!payload || !payload.config) {
+      return true;
+    }
+
+    const nextConfig = buildConfig(payload.config);
+    const hasChanged = JSON.stringify(nextConfig) !== JSON.stringify(appConfig);
+
+    if (hasChanged) {
+      applyConfig(nextConfig);
+    }
+
+    return true;
+  } catch (error) {
+    setSyncStatus("", "local");
+    return false;
+  }
+}
+
+async function syncStateFromServer() {
+  try {
+    const payload = await fetchRemoteState();
+
+    setSyncStatus("Sauvegarde commune active", "online");
+
+    if (!payload || !payload.state) {
+      return true;
+    }
+
+    const nextState = buildState(payload.state);
+    const hasChanged =
+      JSON.stringify(nextState) !== JSON.stringify(getCurrentStateSnapshot());
+
+    if (hasChanged) {
+      applySharedState(nextState);
+    }
+
+    return true;
+  } catch (error) {
+    setSyncStatus("", "local");
+    return false;
+  }
+}
+
+async function saveConfigToServer(nextConfig) {
+  if (!adminUnlocked || !adminSessionCode) {
+    throw new Error("admin required");
+  }
+
+  const response = await fetch(configApiUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-code": adminSessionCode
+    },
+    body: JSON.stringify({ config: nextConfig })
+  });
+
+  if (!response.ok) {
+    throw new Error("save failed");
+  }
+}
+
+async function saveStateToServer(nextState) {
+  const response = await fetch(stateApiUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ state: nextState })
+  });
+
+  if (!response.ok) {
+    throw new Error("state save failed");
+  }
+}
+
+async function deleteRemoteConfig() {
+  if (!adminUnlocked || !adminSessionCode) {
+    throw new Error("admin required");
+  }
+
+  const response = await fetch(configApiUrl, {
+    method: "DELETE",
+    headers: {
+      "x-admin-code": adminSessionCode
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error("delete failed");
+  }
+}
+
 async function saveAdminConfig() {
   if (!adminUnlocked) {
     adminSaveFeedback.textContent = "Seul un admin peut modifier les boutons et les textes.";
@@ -608,7 +737,16 @@ async function saveAdminConfig() {
   const nextConfig = buildAdminConfigFromForm();
 
   applyConfig(nextConfig);
-  adminSaveFeedback.textContent = "Modifications enregistrees sur cet appareil.";
+
+  try {
+    await saveConfigToServer(nextConfig);
+    setSyncStatus("Sauvegarde commune active", "online");
+    adminSaveFeedback.textContent = "Modifications enregistrees sur tous les appareils.";
+  } catch (error) {
+    setSyncStatus("", "local");
+    adminSaveFeedback.textContent =
+      "Serveur indisponible : les modifications ne sont pas partagees pour le moment.";
+  }
 }
 
 async function resetAdminConfig() {
@@ -625,7 +763,16 @@ async function resetAdminConfig() {
 
   const nextConfig = cloneDefaultConfig();
   applyConfig(nextConfig);
-  adminSaveFeedback.textContent = "Les textes d'origine ont ete remis sur cet appareil.";
+
+  try {
+    await deleteRemoteConfig();
+    setSyncStatus("Sauvegarde commune active", "online");
+    adminSaveFeedback.textContent = "Les textes d'origine ont ete remis sur tous les appareils.";
+  } catch (error) {
+    setSyncStatus("", "local");
+    adminSaveFeedback.textContent =
+      "Serveur indisponible : la remise a zero n'est pas partagee pour le moment.";
+  }
 }
 
 levelGrid.addEventListener("click", (event) => {
@@ -668,6 +815,28 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+async function syncEverythingFromServer() {
+  await Promise.all([syncConfigFromServer(), syncStateFromServer()]);
+}
+
+window.addEventListener("focus", () => {
+  if (!isEditingAdmin()) {
+    syncEverythingFromServer();
+  }
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && !isEditingAdmin()) {
+    syncEverythingFromServer();
+  }
+});
+
+window.setInterval(() => {
+  if (document.visibilityState === "visible" && !isEditingAdmin()) {
+    syncEverythingFromServer();
+  }
+}, remotePollMs);
+
 setSyncStatus("", "local");
 restoreAdminSession();
 shareButton.dataset.defaultLabel = shareButton.textContent;
@@ -677,3 +846,4 @@ copyButton.dataset.defaultLabel = copyButton.textContent;
 renderStaticTexts();
 renderLevelButtons();
 restoreState();
+syncEverythingFromServer();
