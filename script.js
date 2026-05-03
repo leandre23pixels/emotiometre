@@ -5,13 +5,22 @@ const stateApiUrl = "./api/state";
 const adminSessionKey = "emotiometre-admin-session";
 const ADMIN_CODE = "LSO2012";
 const remotePollMs = 15000;
+const supabaseProjectUrl = "https://rkgicwsbcltjzseltyzp.supabase.co";
+const supabasePublishableKey = "sb_publishable_GjXtss_isySYy8izyBgglw_afjOxvgn";
+const supabaseTable = "shared_documents";
+const hasSupabaseSync = Boolean(supabaseProjectUrl && supabasePublishableKey);
+
+const sharedDocumentIds = {
+  config: "config",
+  state: "state"
+};
 
 const defaultConfig = {
   ui: {
     heroEyebrow: "Mon emotiometre",
     heroTitle: "Un petit tableau pour rassurer maman.",
     heroCopy:
-      "Je choisis mon niveau du moment, puis j'envoie le message a maman en SMS, WhatsApp ou partage.",
+      "Je choisis mon niveau du moment, et maman peut comprendre tout de suite comment m'aider sans s'inquieter plus que besoin.",
     statusPanelLabel: "Etat actuel",
     selectorPanelLabel: "Je choisis mon niveau",
     summaryPanelLabel: "Message pour maman",
@@ -106,9 +115,6 @@ const statusSupport = document.getElementById("status-support");
 const meterFill = document.getElementById("meter-fill");
 const summaryText = document.getElementById("summary-text");
 const timestamp = document.getElementById("timestamp");
-const shareButton = document.getElementById("share-button");
-const smsButton = document.getElementById("sms-button");
-const whatsappButton = document.getElementById("whatsapp-button");
 const copyButton = document.getElementById("copy-button");
 const adminToggle = document.getElementById("admin-toggle");
 const adminModal = document.getElementById("admin-modal");
@@ -161,9 +167,14 @@ function updateAdminButton() {
 
 function updateLevelAccess() {
   levelAccessNote.textContent = adminUnlocked
-    ? "Mode admin : tu peux aussi modifier les textes."
-    : "Choisis un niveau puis partage le message a maman.";
+    ? "Mode admin : selection des niveaux active"
+    : "Selection reservee a l'admin";
   levelAccessNote.classList.toggle("access-note-open", adminUnlocked);
+
+  [...document.querySelectorAll(".level-button")].forEach((button) => {
+    button.setAttribute("aria-disabled", String(!adminUnlocked));
+    button.classList.toggle("is-locked", !adminUnlocked);
+  });
 }
 
 function isEditingAdmin() {
@@ -276,6 +287,64 @@ function setSyncStatus(message, mode = "local") {
   syncStatus.classList.toggle("sync-status-online", isOnline);
 }
 
+function getSupabaseHeaders(extraHeaders = {}) {
+  return {
+    apikey: supabasePublishableKey,
+    Authorization: `Bearer ${supabasePublishableKey}`,
+    ...extraHeaders
+  };
+}
+
+function getSupabaseTableUrl() {
+  return `${supabaseProjectUrl}/rest/v1/${supabaseTable}`;
+}
+
+async function readSupabaseDocument(documentId) {
+  const endpoint =
+    `${getSupabaseTableUrl()}?id=eq.${encodeURIComponent(documentId)}&select=payload`;
+
+  const response = await fetch(endpoint, {
+    cache: "no-store",
+    headers: getSupabaseHeaders()
+  });
+
+  if (!response.ok) {
+    throw new Error(`supabase read failed: ${response.status}`);
+  }
+
+  const rows = await response.json();
+  return rows[0] ? rows[0].payload : null;
+}
+
+async function writeSupabaseDocument(documentId, payload) {
+  const response = await fetch(getSupabaseTableUrl(), {
+    method: "POST",
+    headers: getSupabaseHeaders({
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    }),
+    body: JSON.stringify([{ id: documentId, payload }])
+  });
+
+  if (!response.ok) {
+    throw new Error(`supabase write failed: ${response.status}`);
+  }
+}
+
+async function deleteSupabaseDocument(documentId) {
+  const endpoint = `${getSupabaseTableUrl()}?id=eq.${encodeURIComponent(documentId)}`;
+  const response = await fetch(endpoint, {
+    method: "DELETE",
+    headers: getSupabaseHeaders({
+      Prefer: "return=minimal"
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`supabase delete failed: ${response.status}`);
+  }
+}
+
 function escapeHtml(value) {
   return String(value)
     .replace(/&/g, "&amp;")
@@ -319,10 +388,6 @@ function getCurrentSummary(level) {
 
 function updateSummaryText() {
   summaryText.textContent = getCurrentSummary(currentLevel);
-}
-
-function getCurrentSummaryText() {
-  return getCurrentSummary(currentLevel);
 }
 
 function renderLevel(level) {
@@ -426,7 +491,7 @@ function fallbackCopy(text) {
 }
 
 async function copySummary() {
-  const text = getCurrentSummaryText();
+  const text = getCurrentSummary(currentLevel);
 
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -439,40 +504,6 @@ async function copySummary() {
   } catch (error) {
     setTemporaryButtonLabel(copyButton, "Copie impossible");
   }
-}
-
-async function shareSummary() {
-  const text = getCurrentSummaryText();
-
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        text
-      });
-      setTemporaryButtonLabel(shareButton, "Partage ouvert");
-      return;
-    } catch (error) {
-      if (error && error.name === "AbortError") {
-        return;
-      }
-    }
-  }
-
-  await copySummary();
-  setTemporaryButtonLabel(shareButton, "Message copie");
-}
-
-function openSmsApp() {
-  const text = encodeURIComponent(getCurrentSummaryText());
-  const isAppleDevice = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const smsUrl = isAppleDevice ? `sms:&body=${text}` : `sms:?body=${text}`;
-
-  window.location.href = smsUrl;
-}
-
-function openWhatsApp() {
-  const text = encodeURIComponent(getCurrentSummaryText());
-  window.location.href = `https://wa.me/?text=${text}`;
 }
 
 function createAdminField(label, value, metadata, options = {}) {
@@ -610,6 +641,11 @@ function buildAdminConfigFromForm() {
 }
 
 async function fetchRemoteConfig() {
+  if (hasSupabaseSync) {
+    const config = await readSupabaseDocument(sharedDocumentIds.config);
+    return { config };
+  }
+
   const response = await fetch(configApiUrl, { cache: "no-store" });
 
   if (!response.ok) {
@@ -620,6 +656,11 @@ async function fetchRemoteConfig() {
 }
 
 async function fetchRemoteState() {
+  if (hasSupabaseSync) {
+    const state = await readSupabaseDocument(sharedDocumentIds.state);
+    return { state };
+  }
+
   const response = await fetch(stateApiUrl, { cache: "no-store" });
 
   if (!response.ok) {
@@ -683,6 +724,11 @@ async function saveConfigToServer(nextConfig) {
     throw new Error("admin required");
   }
 
+  if (hasSupabaseSync) {
+    await writeSupabaseDocument(sharedDocumentIds.config, nextConfig);
+    return;
+  }
+
   const response = await fetch(configApiUrl, {
     method: "PUT",
     headers: {
@@ -698,6 +744,11 @@ async function saveConfigToServer(nextConfig) {
 }
 
 async function saveStateToServer(nextState) {
+  if (hasSupabaseSync) {
+    await writeSupabaseDocument(sharedDocumentIds.state, nextState);
+    return;
+  }
+
   const response = await fetch(stateApiUrl, {
     method: "PUT",
     headers: {
@@ -714,6 +765,11 @@ async function saveStateToServer(nextState) {
 async function deleteRemoteConfig() {
   if (!adminUnlocked || !adminSessionCode) {
     throw new Error("admin required");
+  }
+
+  if (hasSupabaseSync) {
+    await deleteSupabaseDocument(sharedDocumentIds.config);
+    return;
   }
 
   const response = await fetch(configApiUrl, {
@@ -782,12 +838,14 @@ levelGrid.addEventListener("click", (event) => {
     return;
   }
 
+  if (!adminUnlocked) {
+    openAdminModal();
+    return;
+  }
+
   renderLevel(Number(button.dataset.level));
   saveState();
 });
-shareButton.addEventListener("click", shareSummary);
-smsButton.addEventListener("click", openSmsApp);
-whatsappButton.addEventListener("click", openWhatsApp);
 copyButton.addEventListener("click", copySummary);
 adminToggle.addEventListener("click", openAdminModal);
 adminClose.addEventListener("click", closeAdminModal);
@@ -839,9 +897,6 @@ window.setInterval(() => {
 
 setSyncStatus("", "local");
 restoreAdminSession();
-shareButton.dataset.defaultLabel = shareButton.textContent;
-smsButton.dataset.defaultLabel = smsButton.textContent;
-whatsappButton.dataset.defaultLabel = whatsappButton.textContent;
 copyButton.dataset.defaultLabel = copyButton.textContent;
 renderStaticTexts();
 renderLevelButtons();
