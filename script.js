@@ -135,6 +135,8 @@ let appConfig = loadLocalConfig();
 let currentLevel = 2;
 let adminUnlocked = false;
 let adminSessionCode = "";
+let adminPromptMode = "settings";
+let pendingLevelSelection = null;
 
 function setAdminSession(isUnlocked) {
   adminUnlocked = isUnlocked;
@@ -179,6 +181,11 @@ function updateLevelAccess() {
 
 function isEditingAdmin() {
   return adminUnlocked && !adminModal.hidden && !adminEditorView.hidden;
+}
+
+function resetAdminPromptState() {
+  adminPromptMode = "settings";
+  pendingLevelSelection = null;
 }
 
 function cloneDefaultConfig() {
@@ -572,7 +579,9 @@ function renderAdminForm() {
   `;
 }
 
-function openAdminModal() {
+function openAdminModal(options = {}) {
+  adminPromptMode = options.mode || "settings";
+  pendingLevelSelection = Number.isFinite(options.level) ? Number(options.level) : null;
   adminModal.hidden = false;
   document.body.classList.add("admin-open");
 
@@ -594,6 +603,7 @@ function openAdminModal() {
 function closeAdminModal() {
   adminModal.hidden = true;
   document.body.classList.remove("admin-open");
+  resetAdminPromptState();
 }
 
 function unlockAdmin() {
@@ -603,10 +613,19 @@ function unlockAdmin() {
   }
 
   setAdminSession(true);
-  adminLockView.hidden = true;
-  adminEditorView.hidden = false;
   adminFeedback.textContent = "";
   adminSaveFeedback.textContent = "";
+
+  if (adminPromptMode === "select-level" && pendingLevelSelection !== null) {
+    const selectedLevel = pendingLevelSelection;
+    closeAdminModal();
+    renderLevel(selectedLevel);
+    saveState().catch(() => undefined);
+    return;
+  }
+
+  adminLockView.hidden = true;
+  adminEditorView.hidden = false;
   renderAdminForm();
 }
 
@@ -616,6 +635,7 @@ function lockAdmin() {
   adminEditorView.hidden = true;
   adminFeedback.textContent = "";
   adminCodeInput.value = "";
+  resetAdminPromptState();
   adminCodeInput.focus();
 }
 
@@ -839,7 +859,10 @@ levelGrid.addEventListener("click", (event) => {
   }
 
   if (!adminUnlocked) {
-    openAdminModal();
+    openAdminModal({
+      mode: "select-level",
+      level: Number(button.dataset.level)
+    });
     return;
   }
 
@@ -847,7 +870,7 @@ levelGrid.addEventListener("click", (event) => {
   saveState();
 });
 copyButton.addEventListener("click", copySummary);
-adminToggle.addEventListener("click", openAdminModal);
+adminToggle.addEventListener("click", () => openAdminModal({ mode: "settings" }));
 adminClose.addEventListener("click", closeAdminModal);
 adminCancel.addEventListener("click", closeAdminModal);
 adminLogin.addEventListener("click", unlockAdmin);
